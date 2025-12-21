@@ -164,6 +164,13 @@ export function AuthFilesPage() {
   // quotaFileName removed - not needed
   const [quotaError, setQuotaError] = useState<string | null>(null);
 
+  // Antigravity 卡片内联额度数据
+  interface InlineQuotaData {
+    claudeGpt: { percent: number; resetTime: string } | null;
+    gemini: { percent: number; resetTime: string } | null;
+  }
+  const [inlineQuotas, setInlineQuotas] = useState<Record<string, InlineQuotaData>>({});
+
   // OAuth 排除模型相关
   const [excluded, setExcluded] = useState<Record<string, string[]>>({});
   const [excludedError, setExcludedError] = useState<'unsupported' | null>(null);
@@ -239,11 +246,57 @@ export function AuthFilesPage() {
     }
   }, [showNotification, t]);
 
+  // 加载 Antigravity 卡片内联额度
+  const loadInlineQuotas = useCallback(async (fileList: AuthFileItem[]) => {
+    const antigravityFiles = fileList.filter((f) => f.type === 'antigravity');
+    if (antigravityFiles.length === 0) return;
+
+    const newQuotas: Record<string, InlineQuotaData> = {};
+    
+    await Promise.all(
+      antigravityFiles.map(async (file) => {
+        try {
+          const response = await authFilesApi.getAntigravityQuotas(file.name);
+          if (response.success && response.quotas) {
+            // 计算 Claude/GPT 平均额度（Claude 和 GPT 类别）
+            const claudeGptQuotas = response.quotas.filter(
+              (q) => q.category === 'Claude' || q.category === 'GPT'
+            );
+            // 计算 Gemini 平均额度
+            const geminiQuotas = response.quotas.filter((q) => q.category === 'Gemini');
+
+            newQuotas[file.name] = {
+              claudeGpt: claudeGptQuotas.length > 0 ? {
+                percent: Math.min(...claudeGptQuotas.map((q) => q.remainingPercent)),
+                resetTime: claudeGptQuotas[0]?.resetTimeLocal || ''
+              } : null,
+              gemini: geminiQuotas.length > 0 ? {
+                percent: Math.min(...geminiQuotas.map((q) => q.remainingPercent)),
+                resetTime: geminiQuotas[0]?.resetTimeLocal || ''
+              } : null
+            };
+          }
+        } catch {
+          // 静默失败
+        }
+      })
+    );
+
+    setInlineQuotas((prev) => ({ ...prev, ...newQuotas }));
+  }, []);
+
   useEffect(() => {
     loadFiles();
     loadKeyStats();
     loadExcluded();
   }, [loadFiles, loadKeyStats, loadExcluded]);
+
+  // 当文件列表加载完成后，加载 Antigravity 内联额度
+  useEffect(() => {
+    if (files.length > 0) {
+      loadInlineQuotas(files);
+    }
+  }, [files, loadInlineQuotas]);
 
   // 提取所有存在的类型
   const existingTypes = useMemo(() => {
@@ -683,6 +736,70 @@ export function AuthFilesPage() {
             {t('stats.failure')}: {fileStats.failure}
           </span>
         </div>
+
+        {/* Antigravity 内联额度显示 */}
+        {item.type === 'antigravity' && inlineQuotas[item.name] && (
+          <div className={styles.quotaInline}>
+            {inlineQuotas[item.name].claudeGpt && (
+              <div className={styles.quotaInlineItem}>
+                <span className={styles.quotaInlineLabel}>Claude/GPT</span>
+                <div className={styles.quotaInlineBar}>
+                  <div
+                    className={`${styles.quotaInlineBarFill} ${
+                      inlineQuotas[item.name].claudeGpt!.percent > 50
+                        ? styles.quotaHigh
+                        : inlineQuotas[item.name].claudeGpt!.percent > 20
+                          ? styles.quotaMedium
+                          : styles.quotaLow
+                    }`}
+                    style={{ width: `${inlineQuotas[item.name].claudeGpt!.percent}%` }}
+                  />
+                </div>
+                <span className={`${styles.quotaInlinePercent} ${
+                  inlineQuotas[item.name].claudeGpt!.percent > 50
+                    ? styles.quotaHigh
+                    : inlineQuotas[item.name].claudeGpt!.percent > 20
+                      ? styles.quotaMedium
+                      : styles.quotaLow
+                }`}>
+                  {Math.round(inlineQuotas[item.name].claudeGpt!.percent)}%
+                </span>
+                <span className={styles.quotaInlineTime}>
+                  {inlineQuotas[item.name].claudeGpt!.resetTime}
+                </span>
+              </div>
+            )}
+            {inlineQuotas[item.name].gemini && (
+              <div className={styles.quotaInlineItem}>
+                <span className={styles.quotaInlineLabel}>Gemini</span>
+                <div className={styles.quotaInlineBar}>
+                  <div
+                    className={`${styles.quotaInlineBarFill} ${
+                      inlineQuotas[item.name].gemini!.percent > 50
+                        ? styles.quotaHigh
+                        : inlineQuotas[item.name].gemini!.percent > 20
+                          ? styles.quotaMedium
+                          : styles.quotaLow
+                    }`}
+                    style={{ width: `${inlineQuotas[item.name].gemini!.percent}%` }}
+                  />
+                </div>
+                <span className={`${styles.quotaInlinePercent} ${
+                  inlineQuotas[item.name].gemini!.percent > 50
+                    ? styles.quotaHigh
+                    : inlineQuotas[item.name].gemini!.percent > 20
+                      ? styles.quotaMedium
+                      : styles.quotaLow
+                }`}>
+                  {Math.round(inlineQuotas[item.name].gemini!.percent)}%
+                </span>
+                <span className={styles.quotaInlineTime}>
+                  {inlineQuotas[item.name].gemini!.resetTime}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className={styles.cardActions}>
           {isRuntimeOnly ? (
