@@ -601,3 +601,75 @@
 .quotaPercent.quotaLow {
   color: #ef4444;
 }
+
+// 卡片内联额度显示
+.quotaInline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-color);
+  margin-top: 8px;
+}
+
+.quotaInlineItem {
+  display: grid;
+  grid-template-columns: 70px 1fr 40px 65px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.quotaInlineLabel {
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.quotaInlineBar {
+  height: 6px;
+  background-color: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.quotaInlineBarFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.quotaInlineBarFill.quotaHigh {
+  background-color: #22c55e;
+}
+
+.quotaInlineBarFill.quotaMedium {
+  background-color: #f59e0b;
+}
+
+.quotaInlineBarFill.quotaLow {
+  background-color: #ef4444;
+}
+
+.quotaInlinePercent {
+  font-weight: 600;
+  text-align: right;
+}
+
+.quotaInlinePercent.quotaHigh {
+  color: #22c55e;
+}
+
+.quotaInlinePercent.quotaMedium {
+  color: #f59e0b;
+}
+
+.quotaInlinePercent.quotaLow {
+  color: #ef4444;
+}
+
+.quotaInlineTime {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
