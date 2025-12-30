@@ -1,4 +1,5 @@
 export * from './client';
+export * from './apiCall';
 export * from './config';
 export * from './configFile';
 export * from './apiKeys';
@@ -11,3 +12,4 @@ export * from './logs';
 export * from './version';
 export * from './models';
 export * from './transformers';
+export * from './vertex';

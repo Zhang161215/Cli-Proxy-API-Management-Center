@@ -12,6 +12,13 @@
   overflow: hidden;
   background: var(--bg-secondary);
   color: var(--text-primary);
+
+  @media (max-width: $breakpoint-mobile) {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+    overflow-y: auto;
+  }
 }
 
 .main-header {
@@ -28,6 +35,9 @@
   width: 100%;
 
   @media (max-width: $breakpoint-mobile) {
+    position: fixed;
+    left: 0;
+    right: 0;
     padding: $spacing-sm $spacing-md;
     gap: $spacing-sm;
   }
@@ -230,6 +240,17 @@
   @supports (height: 100dvh) {
     height: calc(100dvh - var(--header-height));
   }
+
+  @media (max-width: $breakpoint-mobile) {
+    height: auto;
+    min-height: calc(100vh - var(--header-height));
+    overflow: visible;
+    padding-top: var(--header-height);
+
+    @supports (min-height: 100dvh) {
+      min-height: calc(100dvh - var(--header-height));
+    }
+  }
 }
 
 .sidebar {
@@ -328,14 +349,37 @@
   min-width: 0;
   overflow-y: auto;
   height: 100%;
+
+  &.content-logs {
+    overflow: hidden;
+
+    @media (max-width: $breakpoint-mobile) {
+      overflow: visible;
+      overflow-y: auto;
+      height: auto;
+    }
+  }
 }
 
 .main-content {
-  flex: 1;
+  flex: 1 0 auto;
   padding: $spacing-lg;
   display: flex;
   flex-direction: column;
   gap: $spacing-lg;
+  overflow-x: hidden;
+
+  &.main-content-logs {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+
+    @media (max-width: $breakpoint-mobile) {
+      flex: 0 0 auto;
+      min-height: auto;
+      overflow: visible;
+    }
+  }
 
   @media (max-width: $breakpoint-mobile) {
     padding: $spacing-md;
@@ -353,6 +397,13 @@
   font-size: 14px;
   flex-wrap: wrap;
   gap: $spacing-sm;
+
+  .footer-version {
+    user-select: none;
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    -webkit-touch-callout: none;
+  }
 }
 
 .login-page {
@@ -380,6 +431,7 @@
     display: flex;
     flex-direction: column;
     gap: $spacing-sm;
+    text-align: center;
 
     .title {
       font-size: 22px;
@@ -390,6 +442,18 @@
     .subtitle {
       color: var(--text-secondary);
     }
+  }
+
+  .login-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: $spacing-sm;
+    flex-wrap: wrap;
+  }
+
+  .login-language-btn {
+    white-space: nowrap;
   }
 
   .connection-box {

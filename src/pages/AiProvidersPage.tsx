@@ -1,5 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useInterval } from '@/hooks/useInterval';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -9,8 +10,20 @@ import { HeaderInputList } from '@/components/ui/HeaderInputList';
 import { ModelInputList, modelsToEntries, entriesToModels } from '@/components/ui/ModelInputList';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconCheck, IconX } from '@/components/ui/icons';
-import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
-import { ampcodeApi, modelsApi, providersApi, usageApi } from '@/services/api';
+import { useAuthStore, useConfigStore, useNotificationStore, useThemeStore } from '@/stores';
+import {
+  ampcodeApi,
+  apiCallApi,
+  getApiCallErrorMessage,
+  modelsApi,
+  providersApi,
+  usageApi
+} from '@/services/api';
+import iconGemini from '@/assets/icons/gemini.svg';
+import iconOpenaiLight from '@/assets/icons/openai-light.svg';
+import iconOpenaiDark from '@/assets/icons/openai-dark.svg';
+import iconClaude from '@/assets/icons/claude.svg';
+import iconAmp from '@/assets/icons/amp.svg';
 import type {
   GeminiKeyConfig,
   ProviderKeyConfig,
@@ -19,7 +32,8 @@ import type {
   AmpcodeConfig,
   AmpcodeModelMapping,
 } from '@/types';
-import type { KeyStats, KeyStatBucket } from '@/utils/usage';
+import type { KeyStats, KeyStatBucket, UsageDetail } from '@/utils/usage';
+import { collectUsageDetails, calculateStatusBarData } from '@/utils/usage';
 import type { ModelInfo } from '@/utils/models';
 import { headersToEntries, buildHeaderObject, type HeaderEntry } from '@/utils/headers';
 import { maskApiKey } from '@/utils/format';
@@ -39,6 +53,7 @@ interface ModelEntry {
 
 interface OpenAIFormState {
   name: string;
+  prefix: string;
   baseUrl: string;
   headers: HeaderEntry[];
   testModel?: string;
@@ -83,18 +98,25 @@ const parseExcludedModels = (text: string): string[] =>
 const excludedModelsToText = (models?: string[]) =>
   Array.isArray(models) ? models.join('\n') : '';
 
+const normalizeOpenAIBaseUrl = (baseUrl: string): string => {
+  let trimmed = String(baseUrl || '').trim();
+  if (!trimmed) return '';
+  trimmed = trimmed.replace(/\/?v0\/management\/?$/i, '');
+  trimmed = trimmed.replace(/\/+$/g, '');
+  if (!/^https?:\/\//i.test(trimmed)) {
+    trimmed = `http://${trimmed}`;
+  }
+  return trimmed;
+};
+
 const buildOpenAIModelsEndpoint = (baseUrl: string): string => {
-  const trimmed = String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
+  const trimmed = normalizeOpenAIBaseUrl(baseUrl);
   if (!trimmed) return '';
   return trimmed.endsWith('/v1') ? `${trimmed}/models` : `${trimmed}/v1/models`;
 };
 
 const buildOpenAIChatCompletionsEndpoint = (baseUrl: string): string => {
-  const trimmed = String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
+  const trimmed = normalizeOpenAIBaseUrl(baseUrl);
   if (!trimmed) return '';
   if (trimmed.endsWith('/chat/completions')) {
     return trimmed;
@@ -180,6 +202,7 @@ const buildAmpcodeFormState = (ampcode?: AmpcodeConfig | null): AmpcodeFormState
 export function AiProvidersPage() {
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
+  const { theme } = useThemeStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
 
   const config = useConfigStore((state) => state.config);
@@ -195,11 +218,14 @@ export function AiProvidersPage() {
   const [claudeConfigs, setClaudeConfigs] = useState<ProviderKeyConfig[]>([]);
   const [openaiProviders, setOpenaiProviders] = useState<OpenAIProviderConfig[]>([]);
   const [keyStats, setKeyStats] = useState<KeyStats>({ bySource: {}, byAuthIndex: {} });
+  const [usageDetails, setUsageDetails] = useState<UsageDetail[]>([]);
+  const loadingKeyStatsRef = useRef(false);
 
   const [modal, setModal] = useState<ProviderModal | null>(null);
 
   const [geminiForm, setGeminiForm] = useState<GeminiKeyConfig & { excludedText: string }>({
     apiKey: '',
+    prefix: '',
     baseUrl: '',
     headers: {},
     excludedModels: [],
@@ -209,6 +235,7 @@ export function AiProvidersPage() {
     ProviderKeyConfig & { modelEntries: ModelEntry[]; excludedText: string }
   >({
     apiKey: '',
+    prefix: '',
     baseUrl: '',
     proxyUrl: '',
     headers: {},
@@ -219,6 +246,7 @@ export function AiProvidersPage() {
   });
   const [openaiForm, setOpenaiForm] = useState<OpenAIFormState>({
     name: '',
+    prefix: '',
     baseUrl: '',
     headers: [],
     apiKeyEntries: [buildApiKeyEntry()],
@@ -263,13 +291,23 @@ export function AiProvidersPage() {
     [openaiForm.modelEntries]
   );
 
-  // 加载 key 统计
+  // 加载 key 统计和 usage 明细（API 层已有60秒超时）
   const loadKeyStats = useCallback(async () => {
+    // 防止重复请求
+    if (loadingKeyStatsRef.current) return;
+    loadingKeyStatsRef.current = true;
     try {
-      const stats = await usageApi.getKeyStats();
+      const usageResponse = await usageApi.getUsage();
+      const usageData = usageResponse?.usage ?? usageResponse;
+      const stats = await usageApi.getKeyStats(usageData);
       setKeyStats(stats);
+      // 收集 usage 明细用于状态栏
+      const details = collectUsageDetails(usageData);
+      setUsageDetails(details);
     } catch {
       // 静默失败
+    } finally {
+      loadingKeyStatsRef.current = false;
     }
   }, []);
 
@@ -301,6 +339,9 @@ export function AiProvidersPage() {
     loadKeyStats();
   }, [loadKeyStats]);
 
+  // 定时刷新状态数据（每240秒）
+  useInterval(loadKeyStats, 240_000);
+
   useEffect(() => {
     if (config?.geminiApiKeys) setGeminiKeys(config.geminiApiKeys);
     if (config?.codexApiKeys) setCodexConfigs(config.codexApiKeys);
@@ -317,6 +358,7 @@ export function AiProvidersPage() {
     setModal(null);
     setGeminiForm({
       apiKey: '',
+      prefix: '',
       baseUrl: '',
       headers: {},
       excludedModels: [],
@@ -324,6 +366,7 @@ export function AiProvidersPage() {
     });
     setProviderForm({
       apiKey: '',
+      prefix: '',
       baseUrl: '',
       proxyUrl: '',
       headers: {},
@@ -334,6 +377,7 @@ export function AiProvidersPage() {
     });
     setOpenaiForm({
       name: '',
+      prefix: '',
       baseUrl: '',
       headers: [],
       apiKeyEntries: [buildApiKeyEntry()],
@@ -410,6 +454,7 @@ export function AiProvidersPage() {
       const modelEntries = modelsToEntries(entry.models);
       setOpenaiForm({
         name: entry.name,
+        prefix: entry.prefix ?? '',
         baseUrl: entry.baseUrl,
         headers: headersToEntries(entry.headers),
         testModel: entry.testModel,
@@ -452,7 +497,7 @@ export function AiProvidersPage() {
         .find((entry) => entry.apiKey?.trim())
         ?.apiKey?.trim();
       const hasAuthHeader = Boolean(headers.Authorization || headers['authorization']);
-      const list = await modelsApi.fetchModels(
+      const list = await modelsApi.fetchModelsViaApiCall(
         baseUrl,
         hasAuthHeader ? undefined : firstKey,
         headers
@@ -461,7 +506,7 @@ export function AiProvidersPage() {
     } catch (err: any) {
       if (allowFallback) {
         try {
-          const list = await modelsApi.fetchModels(baseUrl);
+          const list = await modelsApi.fetchModelsViaApiCall(baseUrl);
           setOpenaiDiscoveryModels(list);
           return;
         } catch (fallbackErr: any) {
@@ -614,48 +659,40 @@ export function AiProvidersPage() {
     setOpenaiTestStatus('loading');
     setOpenaiTestMessage(t('ai_providers.openai_test_running'));
 
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), OPENAI_TEST_TIMEOUT_MS);
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: modelName,
-          messages: [{ role: 'user', content: 'Hi' }],
-          stream: false,
-          max_tokens: 5,
-        }),
-      });
-      const rawText = await response.text();
+      const result = await apiCallApi.request(
+        {
+          method: 'POST',
+          url: endpoint,
+          header: Object.keys(headers).length ? headers : undefined,
+          data: JSON.stringify({
+            model: modelName,
+            messages: [{ role: 'user', content: 'Hi' }],
+            stream: false,
+            max_tokens: 5,
+          }),
+        },
+        { timeout: OPENAI_TEST_TIMEOUT_MS }
+      );
 
-      if (!response.ok) {
-        let errorMessage = `${response.status} ${response.statusText}`;
-        try {
-          const parsed = rawText ? JSON.parse(rawText) : null;
-          errorMessage = parsed?.error?.message || parsed?.message || errorMessage;
-        } catch {
-          if (rawText) {
-            errorMessage = rawText;
-          }
-        }
-        throw new Error(errorMessage);
+      if (result.statusCode < 200 || result.statusCode >= 300) {
+        throw new Error(getApiCallErrorMessage(result));
       }
 
       setOpenaiTestStatus('success');
       setOpenaiTestMessage(t('ai_providers.openai_test_success'));
     } catch (err: any) {
       setOpenaiTestStatus('error');
-      if (err?.name === 'AbortError') {
+      const isTimeout =
+        err?.code === 'ECONNABORTED' ||
+        String(err?.message || '').toLowerCase().includes('timeout');
+      if (isTimeout) {
         setOpenaiTestMessage(
           t('ai_providers.openai_test_timeout', { seconds: OPENAI_TEST_TIMEOUT_MS / 1000 })
         );
       } else {
         setOpenaiTestMessage(`${t('ai_providers.openai_test_failed')}: ${err?.message || ''}`);
       }
-    } finally {
-      window.clearTimeout(timeoutId);
     }
   };
 
@@ -757,6 +794,7 @@ export function AiProvidersPage() {
     try {
       const payload: GeminiKeyConfig = {
         apiKey: geminiForm.apiKey.trim(),
+        prefix: geminiForm.prefix?.trim() || undefined,
         baseUrl: geminiForm.baseUrl?.trim() || undefined,
         headers: buildHeaderObject(headersToEntries(geminiForm.headers as any)),
         excludedModels: parseExcludedModels(geminiForm.excludedText),
@@ -888,9 +926,10 @@ export function AiProvidersPage() {
   };
 
   const saveProvider = async (type: 'codex' | 'claude') => {
-    const baseUrl = (providerForm.baseUrl ?? '').trim();
-    if (!baseUrl) {
-      showNotification(t('codex_base_url_required'), 'error');
+    const trimmedBaseUrl = (providerForm.baseUrl ?? '').trim();
+    const baseUrl = trimmedBaseUrl || undefined;
+    if (type === 'codex' && !baseUrl) {
+      showNotification(t('notification.codex_base_url_required'), 'error');
       return;
     }
 
@@ -900,6 +939,7 @@ export function AiProvidersPage() {
 
       const payload: ProviderKeyConfig = {
         apiKey: providerForm.apiKey.trim(),
+        prefix: providerForm.prefix?.trim() || undefined,
         baseUrl,
         proxyUrl: providerForm.proxyUrl?.trim() || undefined,
         headers: buildHeaderObject(headersToEntries(providerForm.headers as any)),
@@ -970,6 +1010,7 @@ export function AiProvidersPage() {
     try {
       const payload: OpenAIProviderConfig = {
         name: openaiForm.name.trim(),
+        prefix: openaiForm.prefix?.trim() || undefined,
         baseUrl: openaiForm.baseUrl.trim(),
         headers: buildHeaderObject(openaiForm.headers),
         apiKeyEntries: openaiForm.apiKeyEntries.map((entry) => ({
@@ -1072,6 +1113,108 @@ export function AiProvidersPage() {
     );
   };
 
+  // 预计算所有 apiKey 的状态栏数据（避免每次渲染重复计算）
+  const statusBarCache = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof calculateStatusBarData>>();
+
+    // 收集所有需要计算的 apiKey
+    const allApiKeys = new Set<string>();
+    geminiKeys.forEach((k) => k.apiKey && allApiKeys.add(k.apiKey));
+    codexConfigs.forEach((k) => k.apiKey && allApiKeys.add(k.apiKey));
+    claudeConfigs.forEach((k) => k.apiKey && allApiKeys.add(k.apiKey));
+    openaiProviders.forEach((p) => {
+      (p.apiKeyEntries || []).forEach((e) => e.apiKey && allApiKeys.add(e.apiKey));
+    });
+
+    // 预计算每个 apiKey 的状态数据
+    allApiKeys.forEach((apiKey) => {
+      cache.set(apiKey, calculateStatusBarData(usageDetails, apiKey));
+    });
+
+    return cache;
+  }, [usageDetails, geminiKeys, codexConfigs, claudeConfigs, openaiProviders]);
+
+  // 预计算 OpenAI 提供商的汇总状态栏数据
+  const openaiStatusBarCache = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof calculateStatusBarData>>();
+
+    openaiProviders.forEach((provider) => {
+      const allKeys = (provider.apiKeyEntries || []).map((e) => e.apiKey).filter(Boolean);
+      const filteredDetails = usageDetails.filter((detail) => allKeys.includes(detail.source));
+      cache.set(provider.name, calculateStatusBarData(filteredDetails));
+    });
+
+    return cache;
+  }, [usageDetails, openaiProviders]);
+
+  // 渲染状态监测栏
+  const renderStatusBar = (apiKey: string) => {
+    const statusData = statusBarCache.get(apiKey) || calculateStatusBarData([], apiKey);
+    const hasData = statusData.totalSuccess + statusData.totalFailure > 0;
+    const rateClass = !hasData
+      ? ''
+      : statusData.successRate >= 90
+        ? styles.statusRateHigh
+        : statusData.successRate >= 50
+          ? styles.statusRateMedium
+          : styles.statusRateLow;
+
+    return (
+      <div className={styles.statusBar}>
+        <div className={styles.statusBlocks}>
+          {statusData.blocks.map((state, idx) => {
+            const blockClass =
+              state === 'success'
+                ? styles.statusBlockSuccess
+                : state === 'failure'
+                  ? styles.statusBlockFailure
+                  : state === 'mixed'
+                    ? styles.statusBlockMixed
+                    : styles.statusBlockIdle;
+            return <div key={idx} className={`${styles.statusBlock} ${blockClass}`} />;
+          })}
+        </div>
+        <span className={`${styles.statusRate} ${rateClass}`}>
+          {hasData ? `${statusData.successRate.toFixed(1)}%` : '--'}
+        </span>
+      </div>
+    );
+  };
+
+  // 渲染 OpenAI 提供商的状态栏（汇总多个 apiKey）
+  const renderOpenAIStatusBar = (providerName: string) => {
+    const statusData = openaiStatusBarCache.get(providerName) || calculateStatusBarData([]);
+    const hasData = statusData.totalSuccess + statusData.totalFailure > 0;
+    const rateClass = !hasData
+      ? ''
+      : statusData.successRate >= 90
+        ? styles.statusRateHigh
+        : statusData.successRate >= 50
+          ? styles.statusRateMedium
+          : styles.statusRateLow;
+
+    return (
+      <div className={styles.statusBar}>
+        <div className={styles.statusBlocks}>
+          {statusData.blocks.map((state, idx) => {
+            const blockClass =
+              state === 'success'
+                ? styles.statusBlockSuccess
+                : state === 'failure'
+                  ? styles.statusBlockFailure
+                  : state === 'mixed'
+                    ? styles.statusBlockMixed
+                    : styles.statusBlockIdle;
+            return <div key={idx} className={`${styles.statusBlock} ${blockClass}`} />;
+          })}
+        </div>
+        <span className={`${styles.statusRate} ${rateClass}`}>
+          {hasData ? `${statusData.successRate.toFixed(1)}%` : '--'}
+        </span>
+      </div>
+    );
+  };
+
   const renderList = <T,>(
     items: T[],
     keyField: (item: T) => string,
@@ -1079,6 +1222,8 @@ export function AiProvidersPage() {
     onEdit: (index: number) => void,
     onDelete: (item: T) => void,
     addLabel: string,
+    emptyTitle: string,
+    emptyDescription: string,
     deleteLabel?: string,
     options?: {
       getRowDisabled?: (item: T, index: number) => boolean;
@@ -1092,8 +1237,8 @@ export function AiProvidersPage() {
     if (!items.length) {
       return (
         <EmptyState
-          title={t('common.info')}
-          description={t('ai_providers.gemini_empty_desc')}
+          title={emptyTitle}
+          description={emptyDescription}
           action={
             <Button onClick={() => onEdit(-1)} disabled={disableControls}>
               {addLabel}
@@ -1147,7 +1292,12 @@ export function AiProvidersPage() {
         {error && <div className="error-box">{error}</div>}
 
         <Card
-          title={t('ai_providers.gemini_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={iconGemini} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.gemini_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1176,6 +1326,12 @@ export function AiProvidersPage() {
                     <span className={styles.fieldLabel}>{t('common.api_key')}:</span>
                     <span className={styles.fieldValue}>{maskApiKey(item.apiKey)}</span>
                   </div>
+                  {item.prefix && (
+                    <div className={styles.fieldRow}>
+                      <span className={styles.fieldLabel}>{t('common.prefix')}:</span>
+                      <span className={styles.fieldValue}>{item.prefix}</span>
+                    </div>
+                  )}
                   {/* Base URL 行 */}
                   {item.baseUrl && (
                     <div className={styles.fieldRow}>
@@ -1225,12 +1381,16 @@ export function AiProvidersPage() {
                       {t('stats.failure')}: {stats.failure}
                     </span>
                   </div>
+                  {/* 状态监测栏 */}
+                  {renderStatusBar(item.apiKey)}
                 </Fragment>
               );
             },
             (index) => openGeminiModal(index),
             (item) => deleteGemini(item.apiKey),
             t('ai_providers.gemini_add_button'),
+            t('ai_providers.gemini_empty_title'),
+            t('ai_providers.gemini_empty_desc'),
             undefined,
             {
               getRowDisabled: (item) => hasDisableAllModelsRule(item.excludedModels),
@@ -1247,7 +1407,12 @@ export function AiProvidersPage() {
         </Card>
 
         <Card
-          title={t('ai_providers.codex_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={theme === 'dark' ? iconOpenaiDark : iconOpenaiLight} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.codex_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1274,6 +1439,12 @@ export function AiProvidersPage() {
                     <span className={styles.fieldLabel}>{t('common.api_key')}:</span>
                     <span className={styles.fieldValue}>{maskApiKey(item.apiKey)}</span>
                   </div>
+                  {item.prefix && (
+                    <div className={styles.fieldRow}>
+                      <span className={styles.fieldLabel}>{t('common.prefix')}:</span>
+                      <span className={styles.fieldValue}>{item.prefix}</span>
+                    </div>
+                  )}
                   {/* Base URL 行 */}
                   {item.baseUrl && (
                     <div className={styles.fieldRow}>
@@ -1330,12 +1501,16 @@ export function AiProvidersPage() {
                       {t('stats.failure')}: {stats.failure}
                     </span>
                   </div>
+                  {/* 状态监测栏 */}
+                  {renderStatusBar(item.apiKey)}
                 </Fragment>
               );
             },
             (index) => openProviderModal('codex', index),
             (item) => deleteProviderEntry('codex', item.apiKey),
             t('ai_providers.codex_add_button'),
+            t('ai_providers.codex_empty_title'),
+            t('ai_providers.codex_empty_desc'),
             undefined,
             {
               getRowDisabled: (item) => hasDisableAllModelsRule(item.excludedModels),
@@ -1352,7 +1527,12 @@ export function AiProvidersPage() {
         </Card>
 
         <Card
-          title={t('ai_providers.claude_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={iconClaude} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.claude_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1379,6 +1559,12 @@ export function AiProvidersPage() {
                     <span className={styles.fieldLabel}>{t('common.api_key')}:</span>
                     <span className={styles.fieldValue}>{maskApiKey(item.apiKey)}</span>
                   </div>
+                  {item.prefix && (
+                    <div className={styles.fieldRow}>
+                      <span className={styles.fieldLabel}>{t('common.prefix')}:</span>
+                      <span className={styles.fieldValue}>{item.prefix}</span>
+                    </div>
+                  )}
                   {/* Base URL 行 */}
                   {item.baseUrl && (
                     <div className={styles.fieldRow}>
@@ -1451,12 +1637,16 @@ export function AiProvidersPage() {
                       {t('stats.failure')}: {stats.failure}
                     </span>
                   </div>
+                  {/* 状态监测栏 */}
+                  {renderStatusBar(item.apiKey)}
                 </Fragment>
               );
             },
             (index) => openProviderModal('claude', index),
             (item) => deleteProviderEntry('claude', item.apiKey),
             t('ai_providers.claude_add_button'),
+            t('ai_providers.claude_empty_title'),
+            t('ai_providers.claude_empty_desc'),
             undefined,
             {
               getRowDisabled: (item) => hasDisableAllModelsRule(item.excludedModels),
@@ -1473,7 +1663,12 @@ export function AiProvidersPage() {
         </Card>
 
         <Card
-          title={t('ai_providers.ampcode_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={iconAmp} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.ampcode_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1546,7 +1741,12 @@ export function AiProvidersPage() {
         </Card>
 
         <Card
-          title={t('ai_providers.openai_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={theme === 'dark' ? iconOpenaiDark : iconOpenaiLight} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.openai_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1567,6 +1767,12 @@ export function AiProvidersPage() {
               return (
                 <Fragment>
                   <div className="item-title">{item.name}</div>
+                  {item.prefix && (
+                    <div className={styles.fieldRow}>
+                      <span className={styles.fieldLabel}>{t('common.prefix')}:</span>
+                      <span className={styles.fieldValue}>{item.prefix}</span>
+                    </div>
+                  )}
                   {/* Base URL 行 */}
                   <div className={styles.fieldRow}>
                     <span className={styles.fieldLabel}>{t('common.base_url')}:</span>
@@ -1654,12 +1860,16 @@ export function AiProvidersPage() {
                       {t('stats.failure')}: {stats.failure}
                     </span>
                   </div>
+                  {/* 状态监测栏（汇总） */}
+                  {renderOpenAIStatusBar(item.name)}
                 </Fragment>
               );
             },
             (index) => openOpenaiModal(index),
             (item) => deleteOpenai(item.name),
-            t('ai_providers.openai_add_button')
+            t('ai_providers.openai_add_button'),
+            t('ai_providers.openai_empty_title'),
+            t('ai_providers.openai_empty_desc')
           )}
         </Card>
 
@@ -1786,6 +1996,13 @@ export function AiProvidersPage() {
             onChange={(e) => setGeminiForm((prev) => ({ ...prev, apiKey: e.target.value }))}
           />
           <Input
+            label={t('ai_providers.prefix_label')}
+            placeholder={t('ai_providers.prefix_placeholder')}
+            value={geminiForm.prefix ?? ''}
+            onChange={(e) => setGeminiForm((prev) => ({ ...prev, prefix: e.target.value }))}
+            hint={t('ai_providers.prefix_hint')}
+          />
+          <Input
             label={t('ai_providers.gemini_base_url_label')}
             placeholder={t('ai_providers.gemini_base_url_placeholder')}
             value={geminiForm.baseUrl ?? ''}
@@ -1848,6 +2065,13 @@ export function AiProvidersPage() {
             }
             value={providerForm.apiKey}
             onChange={(e) => setProviderForm((prev) => ({ ...prev, apiKey: e.target.value }))}
+          />
+          <Input
+            label={t('ai_providers.prefix_label')}
+            placeholder={t('ai_providers.prefix_placeholder')}
+            value={providerForm.prefix ?? ''}
+            onChange={(e) => setProviderForm((prev) => ({ ...prev, prefix: e.target.value }))}
+            hint={t('ai_providers.prefix_hint')}
           />
           <Input
             label={
@@ -1930,6 +2154,13 @@ export function AiProvidersPage() {
             label={t('ai_providers.openai_add_modal_name_label')}
             value={openaiForm.name}
             onChange={(e) => setOpenaiForm((prev) => ({ ...prev, name: e.target.value }))}
+          />
+          <Input
+            label={t('ai_providers.prefix_label')}
+            placeholder={t('ai_providers.prefix_placeholder')}
+            value={openaiForm.prefix ?? ''}
+            onChange={(e) => setOpenaiForm((prev) => ({ ...prev, prefix: e.target.value }))}
+            hint={t('ai_providers.prefix_hint')}
           />
           <Input
             label={t('ai_providers.openai_add_modal_url_label')}

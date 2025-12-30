@@ -1,9 +1,11 @@
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconDownload,
@@ -14,7 +16,7 @@ import {
   IconTrash2,
   IconX,
 } from '@/components/ui/icons';
-import { useNotificationStore, useAuthStore } from '@/stores';
+import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
 import { logsApi } from '@/services/api/logs';
 import { MANAGEMENT_API_PREFIX } from '@/utils/constants';
 import { formatUnixTimestamp } from '@/utils/format';
@@ -38,17 +40,20 @@ const INITIAL_DISPLAY_LINES = 100;
 const LOAD_MORE_LINES = 200;
 const MAX_BUFFER_LINES = 10000;
 const LOAD_MORE_THRESHOLD_PX = 72;
+const LONG_PRESS_MS = 650;
+const LONG_PRESS_MOVE_THRESHOLD = 10;
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'] as const;
 type HttpMethod = (typeof HTTP_METHODS)[number];
 const HTTP_METHOD_REGEX = new RegExp(`\\b(${HTTP_METHODS.join('|')})\\b`);
 
 const LOG_TIMESTAMP_REGEX = /^\[?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\]?/;
-const LOG_LEVEL_REGEX = /^\[?(trace|debug|info|warn|warning|error|fatal)\]?(?=\s|\[|$)\s*/i;
+const LOG_LEVEL_REGEX = /^\[?(trace|debug|info|warn|warning|error|fatal)\s*\]?(?=\s|\[|$)\s*/i;
 const LOG_SOURCE_REGEX = /^\[([^\]]+)\]/;
 const LOG_LATENCY_REGEX = /\b(\d+(?:\.\d+)?)(?:\s*)(µs|us|ms|s)\b/i;
 const LOG_IPV4_REGEX = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
 const LOG_IPV6_REGEX = /\b(?:[a-f0-9]{0,4}:){2,7}[a-f0-9]{0,4}\b/i;
+const LOG_REQUEST_ID_REGEX = /^([a-f0-9]{8}|--------)$/i;
 const LOG_TIME_OF_DAY_REGEX = /^\d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
 const GIN_TIMESTAMP_SEGMENT_REGEX =
   /^\[GIN\]\s+(\d{4})\/(\d{2})\/(\d{2})\s*-\s*(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\s*$/;
@@ -102,6 +107,7 @@ type ParsedLogLine = {
   timestamp?: string;
   level?: LogLevel;
   source?: string;
+  requestId?: string;
   statusCode?: number;
   latency?: string;
   ip?: string;
@@ -154,6 +160,16 @@ const parseLogLine = (raw: string): ParsedLogLine => {
     remaining = remaining.slice(tsMatch[0].length).trim();
   }
 
+  let requestId: string | undefined;
+  const requestIdMatch = remaining.match(/^\[([a-f0-9]{8}|--------)\]\s*/i);
+  if (requestIdMatch) {
+    const id = requestIdMatch[1];
+    if (!/^-+$/.test(id)) {
+      requestId = id;
+    }
+    remaining = remaining.slice(requestIdMatch[0].length).trim();
+  }
+
   let level: LogLevel | undefined;
   const lvlMatch = remaining.match(LOG_LEVEL_REGEX);
   if (lvlMatch) {
@@ -199,10 +215,23 @@ const parseLogLine = (raw: string): ParsedLogLine => {
       }
     }
 
+    // request id (8-char hex or dashes)
+    const requestIdIndex = segments.findIndex((segment) => LOG_REQUEST_ID_REGEX.test(segment));
+    if (requestIdIndex >= 0) {
+      const match = segments[requestIdIndex].match(LOG_REQUEST_ID_REGEX);
+      if (match) {
+        const id = match[1];
+        if (!/^-+$/.test(id)) {
+          requestId = id;
+        }
+        consumed.add(requestIdIndex);
+      }
+    }
+
     // status code
-    const statusIndex = segments.findIndex((segment) => /^\d{3}\b/.test(segment));
+    const statusIndex = segments.findIndex((segment) => /^\d{3}$/.test(segment));
     if (statusIndex >= 0) {
-      const match = segments[statusIndex].match(/^(\d{3})\b/);
+      const match = segments[statusIndex].match(/^(\d{3})$/);
       if (match) {
         const code = Number.parseInt(match[1], 10);
         if (code >= 100 && code <= 599) {
@@ -244,6 +273,16 @@ const parseLogLine = (raw: string): ParsedLogLine => {
       consumed.add(methodIndex);
     }
 
+    // source (e.g. [gin_logger.go:94])
+    const sourceIndex = segments.findIndex((segment) => LOG_SOURCE_REGEX.test(segment));
+    if (sourceIndex >= 0) {
+      const match = segments[sourceIndex].match(LOG_SOURCE_REGEX);
+      if (match) {
+        source = match[1];
+        consumed.add(sourceIndex);
+      }
+    }
+
     message = segments.filter((_, index) => !consumed.has(index)).join(' | ');
   } else {
     statusCode = detectHttpStatusCode(remaining);
@@ -276,6 +315,7 @@ const parseLogLine = (raw: string): ParsedLogLine => {
     timestamp,
     level,
     source,
+    requestId,
     statusCode,
     latency,
     ip,
@@ -319,24 +359,37 @@ const copyToClipboard = async (text: string) => {
   }
 };
 
+type TabType = 'logs' | 'errors';
+
 export function LogsPage() {
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
+  const requestLogEnabled = useConfigStore((state) => state.config?.requestLog ?? false);
 
+  const [activeTab, setActiveTab] = useState<TabType>('logs');
   const [logState, setLogState] = useState<LogState>({ buffer: [], visibleFrom: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const [hideManagementLogs, setHideManagementLogs] = useState(false);
+  const [hideManagementLogs, setHideManagementLogs] = useState(true);
   const [errorLogs, setErrorLogs] = useState<ErrorLogItem[]>([]);
   const [loadingErrors, setLoadingErrors] = useState(false);
+  const [errorLogsError, setErrorLogsError] = useState('');
+  const [requestLogId, setRequestLogId] = useState<string | null>(null);
+  const [requestLogDownloading, setRequestLogDownloading] = useState(false);
 
   const logViewerRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToBottomRef = useRef(false);
   const pendingPrependScrollRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const longPressRef = useRef<{
+    timer: number | null;
+    startX: number;
+    startY: number;
+    fired: boolean;
+  } | null>(null);
 
   // 保存最新时间戳用于增量获取
   const latestTimestampRef = useRef<number>(0);
@@ -449,14 +502,18 @@ export function LogsPage() {
     }
 
     setLoadingErrors(true);
+    setErrorLogsError('');
     try {
       const res = await logsApi.fetchErrorLogs();
       // API 返回 { files: [...] }
       setErrorLogs(Array.isArray(res.files) ? res.files : []);
     } catch (err: unknown) {
       console.error('Failed to load error logs:', err);
-      // 静默失败,不影响主日志显示
       setErrorLogs([]);
+      const message = getErrorMessage(err);
+      setErrorLogsError(
+        message ? `${t('logs.error_logs_load_error')}: ${message}` : t('logs.error_logs_load_error')
+      );
     } finally {
       setLoadingErrors(false);
     }
@@ -486,10 +543,16 @@ export function LogsPage() {
     if (connectionStatus === 'connected') {
       latestTimestampRef.current = 0;
       loadLogs(false);
-      loadErrorLogs();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);
+
+  useEffect(() => {
+    if (activeTab !== 'errors') return;
+    if (connectionStatus !== 'connected') return;
+    void loadErrorLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, connectionStatus, requestLogEnabled]);
 
   useEffect(() => {
     if (!autoRefresh || connectionStatus !== 'connected') {
@@ -596,146 +659,244 @@ export function LogsPage() {
     }
   };
 
+  const clearLongPressTimer = () => {
+    if (longPressRef.current?.timer) {
+      window.clearTimeout(longPressRef.current.timer);
+      longPressRef.current.timer = null;
+    }
+  };
+
+  const startLongPress = (event: ReactPointerEvent<HTMLDivElement>, id?: string) => {
+    if (!requestLogEnabled) return;
+    if (!id) return;
+    if (requestLogId) return;
+    clearLongPressTimer();
+    longPressRef.current = {
+      timer: window.setTimeout(() => {
+        setRequestLogId(id);
+        if (longPressRef.current) {
+          longPressRef.current.fired = true;
+          longPressRef.current.timer = null;
+        }
+      }, LONG_PRESS_MS),
+      startX: event.clientX,
+      startY: event.clientY,
+      fired: false,
+    };
+  };
+
+  const cancelLongPress = () => {
+    clearLongPressTimer();
+    longPressRef.current = null;
+  };
+
+  const handleLongPressMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const current = longPressRef.current;
+    if (!current || current.timer === null || current.fired) return;
+    const deltaX = Math.abs(event.clientX - current.startX);
+    const deltaY = Math.abs(event.clientY - current.startY);
+    if (deltaX > LONG_PRESS_MOVE_THRESHOLD || deltaY > LONG_PRESS_MOVE_THRESHOLD) {
+      cancelLongPress();
+    }
+  };
+
+  const closeRequestLogModal = () => {
+    if (requestLogDownloading) return;
+    setRequestLogId(null);
+  };
+
+  const downloadRequestLog = async (id: string) => {
+    setRequestLogDownloading(true);
+    try {
+      const response = await logsApi.downloadRequestLogById(id);
+      const blob = new Blob([response.data], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `request-${id}.log`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      showNotification(t('logs.request_log_download_success'), 'success');
+      setRequestLogId(null);
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      showNotification(
+        `${t('notification.download_failed')}${message ? `: ${message}` : ''}`,
+        'error'
+      );
+    } finally {
+      setRequestLogDownloading(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (longPressRef.current?.timer) {
+        window.clearTimeout(longPressRef.current.timer);
+        longPressRef.current.timer = null;
+      }
+    };
+  }, []);
+
   return (
     <div className={styles.container}>
       <h1 className={styles.pageTitle}>{t('logs.title')}</h1>
+
+      <div className={styles.tabBar}>
+        <button
+          type="button"
+          className={`${styles.tabItem} ${activeTab === 'logs' ? styles.tabActive : ''}`}
+          onClick={() => setActiveTab('logs')}
+        >
+          {t('logs.log_content')}
+        </button>
+        <button
+          type="button"
+          className={`${styles.tabItem} ${activeTab === 'errors' ? styles.tabActive : ''}`}
+          onClick={() => setActiveTab('errors')}
+        >
+          {t('logs.error_logs_modal_title')}
+        </button>
+      </div>
+
       <div className={styles.content}>
-        <Card
-          title={t('logs.log_content')}
-          extra={
-            <div className={styles.toolbar}>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => loadLogs(false)}
-                disabled={disableControls || loading}
-                className={styles.actionButton}
-              >
-                <span className={styles.buttonContent}>
-                  <IconRefreshCw size={16} />
-                  {t('logs.refresh_button')}
-                </span>
-              </Button>
+        {activeTab === 'logs' && (
+          <Card className={styles.logCard}>
+            {error && <div className="error-box">{error}</div>}
+
+            <div className={styles.filters}>
+              <div className={styles.searchWrapper}>
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={t('logs.search_placeholder')}
+                  className={styles.searchInput}
+                  rightElement={
+                    searchQuery ? (
+                      <button
+                        type="button"
+                        className={styles.searchClear}
+                        onClick={() => setSearchQuery('')}
+                        title="Clear"
+                        aria-label="Clear"
+                      >
+                        <IconX size={16} />
+                      </button>
+                    ) : (
+                      <IconSearch size={16} className={styles.searchIcon} />
+                    )
+                  }
+                />
+              </div>
+
               <ToggleSwitch
-                checked={autoRefresh}
-                onChange={(value) => setAutoRefresh(value)}
-                disabled={disableControls}
+                checked={hideManagementLogs}
+                onChange={setHideManagementLogs}
                 label={
                   <span className={styles.switchLabel}>
-                    <IconTimer size={16} />
-                    {t('logs.auto_refresh')}
+                    <IconEyeOff size={16} />
+                    {t('logs.hide_management_logs', { prefix: MANAGEMENT_API_PREFIX })}
                   </span>
                 }
               />
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={downloadLogs}
-                disabled={logState.buffer.length === 0}
-                className={styles.actionButton}
-              >
-                <span className={styles.buttonContent}>
-                  <IconDownload size={16} />
-                  {t('logs.download_button')}
-                </span>
-              </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={clearLogs}
-                disabled={disableControls}
-                className={styles.actionButton}
-              >
-                <span className={styles.buttonContent}>
-                  <IconTrash2 size={16} />
-                  {t('logs.clear_button')}
-                </span>
-              </Button>
-            </div>
-          }
-        >
-          {error && <div className="error-box">{error}</div>}
 
-          <div className={styles.filters}>
-            <div className={styles.searchWrapper}>
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={t('logs.search_placeholder')}
-                className={styles.searchInput}
-                rightElement={
-                  searchQuery ? (
-                    <button
-                      type="button"
-                      className={styles.searchClear}
-                      onClick={() => setSearchQuery('')}
-                      title="Clear"
-                      aria-label="Clear"
-                    >
-                      <IconX size={16} />
-                    </button>
-                  ) : (
-                    <IconSearch size={16} className={styles.searchIcon} />
-                  )
-                }
-              />
-            </div>
-
-            <ToggleSwitch
-              checked={hideManagementLogs}
-              onChange={setHideManagementLogs}
-              label={
-                <span className={styles.switchLabel}>
-                  <IconEyeOff size={16} />
-                  {t('logs.hide_management_logs', { prefix: MANAGEMENT_API_PREFIX })}
-                </span>
-              }
-            />
-
-            <div className={styles.filterStats}>
-              <span>
-                {parsedVisibleLines.length} {t('logs.lines')}
-              </span>
-              {removedCount > 0 && (
-                <span className={styles.removedCount}>
-                  {t('logs.removed')} {removedCount}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="hint">{t('logs.loading')}</div>
-          ) : logState.buffer.length > 0 && parsedVisibleLines.length > 0 ? (
-            <div ref={logViewerRef} className={styles.logPanel} onScroll={handleLogScroll}>
-              {canLoadMore && (
-                <div className={styles.loadMoreBanner}>
-                  <span>{t('logs.load_more_hint')}</span>
-                  <span className={styles.loadMoreCount}>
-                    {t('logs.hidden_lines', { count: logState.visibleFrom })}
+              <div className={styles.toolbar}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => loadLogs(false)}
+                  disabled={disableControls || loading}
+                  className={styles.actionButton}
+                >
+                  <span className={styles.buttonContent}>
+                    <IconRefreshCw size={16} />
+                    {t('logs.refresh_button')}
                   </span>
-                </div>
-              )}
-              <div className={styles.logList}>
-                {parsedVisibleLines.map((line, index) => {
-                  const rowClassNames = [styles.logRow];
-                  if (line.level === 'warn') rowClassNames.push(styles.rowWarn);
-                  if (line.level === 'error' || line.level === 'fatal')
-                    rowClassNames.push(styles.rowError);
-                  return (
-                    <div
-                      key={`${logState.visibleFrom + index}-${line.raw}`}
-                      className={rowClassNames.join(' ')}
-                      onDoubleClick={() => {
-                        void copyLogLine(line.raw);
-                      }}
-                      title={t('logs.double_click_copy_hint', {
-                        defaultValue: 'Double-click to copy',
-                      })}
-                    >
-                      <div className={styles.timestamp}>{line.timestamp || ''}</div>
-                      <div className={styles.rowMain}>
-                        <div className={styles.rowMeta}>
+                </Button>
+                <ToggleSwitch
+                  checked={autoRefresh}
+                  onChange={(value) => setAutoRefresh(value)}
+                  disabled={disableControls}
+                  label={
+                    <span className={styles.switchLabel}>
+                      <IconTimer size={16} />
+                      {t('logs.auto_refresh')}
+                    </span>
+                  }
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={downloadLogs}
+                  disabled={logState.buffer.length === 0}
+                  className={styles.actionButton}
+                >
+                  <span className={styles.buttonContent}>
+                    <IconDownload size={16} />
+                    {t('logs.download_button')}
+                  </span>
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={clearLogs}
+                  disabled={disableControls}
+                  className={styles.actionButton}
+                >
+                  <span className={styles.buttonContent}>
+                    <IconTrash2 size={16} />
+                    {t('logs.clear_button')}
+                  </span>
+                </Button>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="hint">{t('logs.loading')}</div>
+            ) : logState.buffer.length > 0 && parsedVisibleLines.length > 0 ? (
+              <div ref={logViewerRef} className={styles.logPanel} onScroll={handleLogScroll}>
+                {canLoadMore && (
+                  <div className={styles.loadMoreBanner}>
+                    <span>{t('logs.load_more_hint')}</span>
+                    <div className={styles.loadMoreStats}>
+                      <span>
+                        {t('logs.loaded_lines', { count: parsedVisibleLines.length })}
+                      </span>
+                      {removedCount > 0 && (
+                        <span className={styles.loadMoreCount}>
+                          {t('logs.filtered_lines', { count: removedCount })}
+                        </span>
+                      )}
+                      <span className={styles.loadMoreCount}>
+                        {t('logs.hidden_lines', { count: logState.visibleFrom })}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <div className={styles.logList}>
+                  {parsedVisibleLines.map((line, index) => {
+                    const rowClassNames = [styles.logRow];
+                    if (line.level === 'warn') rowClassNames.push(styles.rowWarn);
+                    if (line.level === 'error' || line.level === 'fatal')
+                      rowClassNames.push(styles.rowError);
+                    return (
+                      <div
+                        key={`${logState.visibleFrom + index}-${line.raw}`}
+                        className={rowClassNames.join(' ')}
+                        onDoubleClick={() => {
+                          void copyLogLine(line.raw);
+                        }}
+                        onPointerDown={(event) => startLongPress(event, line.requestId)}
+                        onPointerUp={cancelLongPress}
+                        onPointerLeave={cancelLongPress}
+                        onPointerCancel={cancelLongPress}
+                        onPointerMove={handleLongPressMove}
+                        title={t('logs.double_click_copy_hint', {
+                          defaultValue: 'Double-click to copy',
+                        })}
+                      >
+                        <div className={styles.timestamp}>{line.timestamp || ''}</div>
+                        <div className={styles.rowMain}>
                           {line.level && (
                             <span
                               className={[
@@ -758,6 +919,15 @@ export function LogsPage() {
                           {line.source && (
                             <span className={styles.source} title={line.source}>
                               {line.source}
+                            </span>
+                          )}
+
+                          {line.requestId && (
+                            <span
+                              className={[styles.badge, styles.requestIdBadge].join(' ')}
+                              title={line.requestId}
+                            >
+                              {line.requestId}
                             </span>
                           )}
 
@@ -787,65 +957,117 @@ export function LogsPage() {
                               {line.method}
                             </span>
                           )}
+
                           {line.path && (
                             <span className={styles.path} title={line.path}>
                               {line.path}
                             </span>
                           )}
+
+                          {line.message && <span className={styles.message}>{line.message}</span>}
                         </div>
-                        {line.message && <div className={styles.message}>{line.message}</div>}
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+              </div>
+            ) : logState.buffer.length > 0 ? (
+              <EmptyState
+                title={t('logs.search_empty_title')}
+                description={t('logs.search_empty_desc')}
+              />
+            ) : (
+              <EmptyState title={t('logs.empty_title')} description={t('logs.empty_desc')} />
+            )}
+          </Card>
+        )}
+
+        {activeTab === 'errors' && (
+          <Card
+            extra={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={loadErrorLogs}
+                loading={loadingErrors}
+                disabled={disableControls}
+              >
+                {t('common.refresh')}
+              </Button>
+            }
+          >
+            <div className="stack">
+              <div className="hint">{t('logs.error_logs_description')}</div>
+
+              {requestLogEnabled && (
+                <div>
+                  <div className="status-badge warning">{t('logs.error_logs_request_log_enabled')}</div>
+                </div>
+              )}
+
+              {errorLogsError && <div className="error-box">{errorLogsError}</div>}
+
+              <div className={styles.errorPanel}>
+                {loadingErrors ? (
+                  <div className="hint">{t('common.loading')}</div>
+                ) : errorLogs.length === 0 ? (
+                  <div className="hint">{t('logs.error_logs_empty')}</div>
+                ) : (
+                  <div className="item-list">
+                    {errorLogs.map((item) => (
+                      <div key={item.name} className="item-row">
+                        <div className="item-meta">
+                          <div className="item-title">{item.name}</div>
+                          <div className="item-subtitle">
+                            {item.size ? `${(item.size / 1024).toFixed(1)} KB` : ''}{' '}
+                            {item.modified ? formatUnixTimestamp(item.modified) : ''}
+                          </div>
+                        </div>
+                        <div className="item-actions">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => downloadErrorLog(item.name)}
+                            disabled={disableControls}
+                          >
+                            {t('logs.error_logs_download')}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
-          ) : logState.buffer.length > 0 ? (
-            <EmptyState
-              title={t('logs.search_empty_title')}
-              description={t('logs.search_empty_desc')}
-            />
-          ) : (
-            <EmptyState title={t('logs.empty_title')} description={t('logs.empty_desc')} />
-          )}
-        </Card>
-
-        <Card
-          title={t('logs.error_logs_modal_title')}
-          extra={
-            <Button variant="secondary" size="sm" onClick={loadErrorLogs} loading={loadingErrors}>
-              {t('common.refresh')}
-            </Button>
-          }
-        >
-          {errorLogs.length === 0 ? (
-            <div className="hint">{t('logs.error_logs_empty')}</div>
-          ) : (
-            <div className="item-list">
-              {errorLogs.map((item) => (
-                <div key={item.name} className="item-row">
-                  <div className="item-meta">
-                    <div className="item-title">{item.name}</div>
-                    <div className="item-subtitle">
-                      {item.size ? `${(item.size / 1024).toFixed(1)} KB` : ''}{' '}
-                      {item.modified ? formatUnixTimestamp(item.modified) : ''}
-                    </div>
-                  </div>
-                  <div className="item-actions">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => downloadErrorLog(item.name)}
-                    >
-                      {t('logs.error_logs_download')}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
+          </Card>
+        )}
       </div>
+
+      <Modal
+        open={Boolean(requestLogId)}
+        onClose={closeRequestLogModal}
+        title={t('logs.request_log_download_title')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeRequestLogModal} disabled={requestLogDownloading}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={() => {
+                if (requestLogId) {
+                  void downloadRequestLog(requestLogId);
+                }
+              }}
+              loading={requestLogDownloading}
+              disabled={!requestLogId}
+            >
+              {t('common.confirm')}
+            </Button>
+          </>
+        }
+      >
+        {requestLogId ? t('logs.request_log_download_confirm', { id: requestLogId }) : null}
+      </Modal>
     </div>
   );
 }

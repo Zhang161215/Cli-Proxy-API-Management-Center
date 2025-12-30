@@ -2,19 +2,80 @@
 
 .container {
   width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
+  @include mobile {
+    min-height: auto;
+    overflow: visible;
+  }
 }
 
 .pageTitle {
   font-size: 28px;
   font-weight: 700;
   color: var(--text-primary);
-  margin: 0 0 $spacing-xl 0;
+  margin: 0 0 $spacing-lg 0;
+}
+
+.tabBar {
+  display: flex;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-lg;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tabItem {
+  @include button-reset;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.tabActive {
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
 }
 
 .content {
   display: flex;
   flex-direction: column;
   gap: $spacing-lg;
+  flex: 1;
+  min-height: 0;
+
+  @include mobile {
+    gap: $spacing-md;
+    min-height: auto;
+  }
+}
+
+.logCard {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+
+  @include mobile {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+  }
 }
 
 .toolbar {
@@ -22,9 +83,12 @@
   align-items: center;
   gap: $spacing-sm;
   flex-wrap: wrap;
+  margin-left: auto;
 
   @include mobile {
     align-items: flex-start;
+    margin-left: 0;
+    width: 100%;
   }
 }
 
@@ -37,6 +101,11 @@
 
   :global(.form-group) {
     margin: 0;
+  }
+
+  @include mobile {
+    gap: $spacing-sm;
+    margin-bottom: $spacing-sm;
   }
 }
 
@@ -112,9 +181,33 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: $radius-md;
-  max-height: 620px;
+  flex: 1 1 auto;
+  min-height: 280px;
+  max-height: calc(100vh - 320px);
   overflow: auto;
   position: relative;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+
+  @include tablet {
+    min-height: 240px;
+    max-height: calc(100vh - 300px);
+  }
+
+  @include mobile {
+    min-height: 360px;
+    max-height: 480px;
+    flex: 0 0 auto;
+    overflow: auto;
+  }
+}
+
+.errorPanel {
+  height: 480px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .loadMoreBanner {
@@ -130,11 +223,38 @@
   background: var(--bg-primary);
   color: var(--text-secondary);
   font-size: 12px;
+
+  @include mobile {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: $spacing-xs;
+
+    > span {
+      width: 100%;
+    }
+  }
 }
 
 .loadMoreCount {
   color: var(--text-tertiary);
   white-space: nowrap;
+}
+
+.loadMoreStats {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+
+  @include mobile {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: $spacing-sm;
+
+    > span {
+      white-space: nowrap;
+    }
+  }
 }
 
 .logList {
@@ -161,9 +281,18 @@
     background: rgba(59, 130, 246, 0.06);
   }
 
+  @include tablet {
+    grid-template-columns: 140px 1fr;
+    gap: $spacing-sm;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
   @include mobile {
     grid-template-columns: 1fr;
     gap: $spacing-xs;
+    padding: 8px 10px;
+    font-size: 11.5px;
   }
 }
 
@@ -187,15 +316,8 @@
 
 .rowMain {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.rowMeta {
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: 6px;
   min-width: 0;
 }
@@ -234,6 +356,15 @@
   @include mobile {
     max-width: 100%;
   }
+}
+
+.requestIdBadge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  font-size: 11px;
+  color: #0891b2;
+  background: rgba(8, 145, 178, 0.1);
+  border-color: rgba(8, 145, 178, 0.25);
 }
 
 .statusBadge {
@@ -303,11 +434,101 @@
 
   @include mobile {
     max-width: 100%;
+    flex-basis: 100%;
   }
 }
 
 .message {
   color: var(--text-secondary);
-  white-space: pre-wrap;
   word-break: break-word;
+
+  @include mobile {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-height: 820px) {
+  .pageTitle {
+    font-size: 24px;
+    margin-bottom: $spacing-md;
+  }
+
+  .tabBar {
+    margin-bottom: $spacing-md;
+  }
+
+  .tabItem {
+    padding: 10px 16px;
+  }
+
+  .content {
+    gap: $spacing-md;
+  }
+
+  .logCard {
+    padding: $spacing-md;
+  }
+
+  .logPanel {
+    min-height: 200px;
+    max-height: calc(100vh - 280px);
+  }
+
+  .logRow {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .errorPanel {
+    height: 360px;
+  }
+}
+
+@media (max-height: 600px) {
+  .pageTitle {
+    font-size: 20px;
+    margin-bottom: $spacing-sm;
+  }
+
+  .tabBar {
+    margin-bottom: $spacing-sm;
+  }
+
+  .tabItem {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .content {
+    gap: $spacing-sm;
+  }
+
+  .filters {
+    margin-bottom: $spacing-sm;
+    gap: $spacing-sm;
+  }
+
+  .logCard {
+    padding: $spacing-sm;
+  }
+
+  .logPanel {
+    min-height: 160px;
+    max-height: calc(100vh - 220px);
+  }
+
+  .logRow {
+    padding: 6px 8px;
+    font-size: 11px;
+    grid-template-columns: 130px 1fr;
+    gap: $spacing-xs;
+  }
+
+  .loadMoreBanner {
+    padding: 6px 10px;
+  }
+
+  .errorPanel {
+    height: 280px;
+  }
 }

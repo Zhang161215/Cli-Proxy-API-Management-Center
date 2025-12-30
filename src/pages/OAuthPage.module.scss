@@ -4,6 +4,17 @@
   width: 100%;
 }
 
+.cardTitle {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.cardTitleIcon {
+  width: 24px;
+  height: 24px;
+}
+
 .pageTitle {
   font-size: 28px;
   font-weight: 700;
@@ -102,4 +113,26 @@
   align-items: center;
   gap: $spacing-sm;
   margin-top: $spacing-sm;
+}
+
+.filePicker {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+}
+
+.fileName {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.fileNamePlaceholder {
+  color: var(--text-secondary);
 }

@@ -10,6 +10,8 @@ api.md
 usage.json
 CLAUDE.md
 AGENTS.md
+antigravity_usage.json
+codex_usage.json
 
 node_modules
 dist

@@ -31,16 +31,21 @@ function App() {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    initializeTheme();
+    const cleanupTheme = initializeTheme();
     void restoreSession().finally(() => {
       setAuthReady(true);
     });
+    return cleanupTheme;
   }, [initializeTheme, restoreSession]);
 
   useEffect(() => {
     setLanguage(language);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 仅用于首屏同步 i18n 语言
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
