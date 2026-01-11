@@ -4,6 +4,7 @@
 
 import axios from 'axios';
 import { normalizeModelList } from '@/utils/models';
+import { apiClient } from './client';
 import { apiCallApi, getApiCallErrorMessage } from './apiCall';
 
 const normalizeBaseUrl = (baseUrl: string): string => {
@@ -39,6 +40,12 @@ export const modelsApi = {
       headers: Object.keys(resolvedHeaders).length ? resolvedHeaders : undefined
     });
     const payload = response.data?.data ?? response.data?.models ?? response.data;
+    return normalizeModelList(payload, { dedupe: true });
+  },
+
+  async fetchModelsViaManagement() {
+    const response = await apiClient.get<{ data?: any[]; models?: any[]; object?: string }>('/models');
+    const payload = response?.data ?? response?.models ?? response;
     return normalizeModelList(payload, { dedupe: true });
   },
 

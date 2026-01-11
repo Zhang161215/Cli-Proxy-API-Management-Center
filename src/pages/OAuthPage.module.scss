@@ -143,3 +143,75 @@
 .fileNamePlaceholder {
   color: var(--text-secondary);
 }
+
+// Kiro OAuth 样式
+.kiroAuthButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  margin-top: $spacing-md;
+}
+
+.kiroAuthButton {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  padding: 10px 16px;
+  border-radius: $radius-md;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-secondary);
+    border-color: var(--text-secondary);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.kiroAuthButton--google {
+  border-color: #ea4335;
+  
+  &:hover:not(:disabled) {
+    background: rgba(234, 67, 53, 0.1);
+    border-color: #ea4335;
+  }
+}
+
+.kiroAuthButton--github {
+  border-color: #24292e;
+  
+  :global(.dark) & {
+    border-color: #f0f6fc;
+  }
+  
+  &:hover:not(:disabled) {
+    background: rgba(36, 41, 46, 0.1);
+    
+    :global(.dark) & {
+      background: rgba(240, 246, 252, 0.1);
+    }
+  }
+}
+
+.kiroAuthButton--aws {
+  border-color: #ff9900;
+  
+  &:hover:not(:disabled) {
+    background: rgba(255, 153, 0, 0.1);
+    border-color: #ff9900;
+  }
+}

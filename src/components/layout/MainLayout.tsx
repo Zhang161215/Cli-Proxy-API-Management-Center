@@ -45,6 +45,13 @@ const sidebarIcons: Record<string, ReactNode> = {
   aiProviders: <IconBot size={18} />,
   authFiles: <IconFileText size={18} />,
   oauth: <IconShield size={18} />,
+  kiro: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2L2 7l10 5 10-5-10-5z" />
+      <path d="M2 17l10 5 10-5" />
+      <path d="M2 12l10 5 10-5" />
+    </svg>
+  ),
   quota: <IconTimer size={18} />,
   usage: <IconChartLine size={18} />,
   config: <IconSettings size={18} />,
@@ -362,6 +369,7 @@ export function MainLayout() {
     { path: '/ai-providers', label: t('nav.ai_providers'), icon: sidebarIcons.aiProviders },
     { path: '/auth-files', label: t('nav.auth_files'), icon: sidebarIcons.authFiles },
     { path: '/oauth', label: t('nav.oauth', { defaultValue: 'OAuth' }), icon: sidebarIcons.oauth },
+    { path: '/kiro', label: t('nav.kiro', { defaultValue: 'Kiro' }), icon: sidebarIcons.kiro },
     { path: '/quota', label: t('nav.quota_management'), icon: sidebarIcons.quota },
     { path: '/usage', label: t('nav.usage_stats'), icon: sidebarIcons.usage },
     { path: '/config', label: t('nav.config_management'), icon: sidebarIcons.config },

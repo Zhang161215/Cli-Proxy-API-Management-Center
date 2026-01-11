@@ -1,0 +1,286 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.tableContainer {
+  overflow-x: auto;
+  border-radius: $radius-md;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+
+  &.dark {
+    .table {
+      thead tr {
+        background: rgba(255, 255, 255, 0.03);
+      }
+      tbody tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+      }
+    }
+  }
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th, td {
+    padding: $spacing-sm $spacing-md;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+  }
+
+  thead {
+    tr {
+      background: var(--bg-secondary);
+    }
+    th {
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+  }
+
+  tbody {
+    tr {
+      transition: background 0.15s;
+
+      &:hover {
+        background: var(--bg-hover);
+      }
+
+      &.selected {
+        background: rgba(139, 92, 246, 0.05);
+      }
+
+      &:last-child td {
+        border-bottom: none;
+      }
+    }
+  }
+}
+
+.checkboxCol {
+  width: 40px;
+  text-align: center !important;
+
+  input {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #8b5cf6;
+  }
+}
+
+.emailCol {
+  min-width: 200px;
+}
+
+.emailWrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.email {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.copyBtn {
+  padding: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  transition: all 0.2s;
+  border-radius: $radius-sm;
+
+  &:hover {
+    opacity: 1;
+    background: var(--bg-hover);
+    color: #3b82f6;
+  }
+}
+
+.labelCol {
+  max-width: 120px;
+}
+
+.label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.provider {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(107, 114, 128, 0.1);
+  color: var(--text-secondary);
+}
+
+.subBadge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+
+  &.subProPlus {
+    background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+    color: white;
+  }
+
+  &.subPro {
+    background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+    color: white;
+  }
+
+  &.subFree {
+    background: rgba(107, 114, 128, 0.1);
+    color: #6b7280;
+  }
+}
+
+.quotaCol {
+  min-width: 120px;
+}
+
+.quotaWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quotaText {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.quotaSeparator {
+  color: var(--text-secondary);
+  margin: 0 2px;
+}
+
+.progressBar {
+  height: 4px;
+  width: 80px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+
+  &.green {
+    background: linear-gradient(90deg, #10b981, #34d399);
+  }
+  &.yellow {
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  }
+  &.red {
+    background: linear-gradient(90deg, #ef4444, #f87171);
+  }
+}
+
+.statusBadge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+
+  &.statusActive {
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
+  }
+
+  &.statusBanned {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+  }
+
+  &.statusExpired {
+    background: rgba(245, 158, 11, 0.1);
+    color: #d97706;
+  }
+
+  &.statusUnknown {
+    background: rgba(107, 114, 128, 0.1);
+    color: #6b7280;
+  }
+}
+
+.machineIdCol {
+  max-width: 100px;
+}
+
+.machineId {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.expiresCol {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.expiredText {
+  color: #ef4444;
+}
+
+.actionsCol {
+  width: 100px;
+}
+
+.actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.actionBtn {
+  padding: 6px;
+  border: none;
+  border-radius: $radius-sm;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  &.deleteBtn:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+  }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

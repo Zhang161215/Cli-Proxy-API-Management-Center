@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { IconGithub, IconBookOpen, IconExternalLink, IconCode } from '@/components/ui/icons';
 import { useAuthStore, useConfigStore, useNotificationStore, useModelsStore } from '@/stores';
-import { apiKeysApi } from '@/services/api/apiKeys';
 import { classifyModels } from '@/utils/models';
 import { STORAGE_KEY_AUTH } from '@/utils/constants';
 import styles from './SystemPage.module.scss';
@@ -13,7 +12,6 @@ export function SystemPage() {
   const { t, i18n } = useTranslation();
   const { showNotification } = useNotificationStore();
   const auth = useAuthStore();
-  const config = useConfigStore((state) => state.config);
   const fetchConfig = useConfigStore((state) => state.fetchConfig);
 
   const models = useModelsStore((state) => state.models);
@@ -23,53 +21,11 @@ export function SystemPage() {
 
   const [modelStatus, setModelStatus] = useState<{ type: 'success' | 'warning' | 'error' | 'muted'; message: string }>();
 
-  const apiKeysCache = useRef<string[]>([]);
-
   const otherLabel = useMemo(
     () => (i18n.language?.toLowerCase().startsWith('zh') ? '其他' : 'Other'),
     [i18n.language]
   );
   const groupedModels = useMemo(() => classifyModels(models, { otherLabel }), [models, otherLabel]);
-
-  const normalizeApiKeyList = (input: any): string[] => {
-    if (!Array.isArray(input)) return [];
-    const seen = new Set<string>();
-    const keys: string[] = [];
-
-    input.forEach((item) => {
-      const value = typeof item === 'string' ? item : item?.['api-key'] ?? item?.apiKey ?? '';
-      const trimmed = String(value || '').trim();
-      if (!trimmed || seen.has(trimmed)) return;
-      seen.add(trimmed);
-      keys.push(trimmed);
-    });
-
-    return keys;
-  };
-
-  const resolveApiKeysForModels = useCallback(async () => {
-    if (apiKeysCache.current.length) {
-      return apiKeysCache.current;
-    }
-
-    const configKeys = normalizeApiKeyList(config?.apiKeys);
-    if (configKeys.length) {
-      apiKeysCache.current = configKeys;
-      return configKeys;
-    }
-
-    try {
-      const list = await apiKeysApi.list();
-      const normalized = normalizeApiKeyList(list);
-      if (normalized.length) {
-        apiKeysCache.current = normalized;
-      }
-      return normalized;
-    } catch (err) {
-      console.warn('Auto loading API keys for models failed:', err);
-      return [];
-    }
-  }, [config?.apiKeys]);
 
   const fetchModels = async ({ forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
     if (auth.connectionStatus !== 'connected') {
@@ -85,15 +41,9 @@ export function SystemPage() {
       return;
     }
 
-    if (forceRefresh) {
-      apiKeysCache.current = [];
-    }
-
     setModelStatus({ type: 'muted', message: t('system_info.models_loading') });
     try {
-      const apiKeys = await resolveApiKeysForModels();
-      const primaryKey = apiKeys[0];
-      const list = await fetchModelsFromStore(auth.apiBase, primaryKey, forceRefresh);
+      const list = await fetchModelsFromStore(auth.apiBase, undefined, forceRefresh);
       const hasModels = list.length > 0;
       setModelStatus({
         type: hasModels ? 'success' : 'warning',

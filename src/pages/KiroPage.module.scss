@@ -1,0 +1,61 @@
+@use '../styles/variables' as *;
+@use '../styles/mixins' as *;
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.listSection {
+  background: var(--bg-primary);
+  border-radius: $radius-lg;
+  border: 1px solid var(--border-color);
+  padding: $spacing-md;
+}
+
+.detailsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.detailRow {
+  display: flex;
+  gap: 1rem;
+  padding: $spacing-xs 0;
+  border-bottom: 1px solid var(--border-color);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.detailLabel {
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.detailValue {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.filterBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: $radius-md;
+  font-size: 0.875rem;
+  color: #3b82f6;
+
+  span {
+    font-weight: 500;
+  }
+}

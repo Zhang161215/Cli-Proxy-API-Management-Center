@@ -91,6 +91,7 @@
     "ai_providers": "AI Providers",
     "auth_files": "Auth Files",
     "oauth": "OAuth Login",
+    "kiro": "Kiro Accounts",
     "quota_management": "Quota Management",
     "usage_stats": "Usage Statistics",
     "config_management": "Config Management",
@@ -900,6 +901,142 @@
   "sidebar": {
     "toggle_expand": "Expand sidebar",
     "toggle_collapse": "Collapse sidebar"
+  },
+  "kiro": {
+    "title": "Kiro Account Management",
+    "subtitle": "Manage your AWS CodeWhisperer (Kiro) accounts",
+    "stats": {
+      "total": "Total Accounts",
+      "active": "Active",
+      "banned": "Banned",
+      "expired": "Expired",
+      "proPlus": "Pro+",
+      "pro": "Pro",
+      "free": "Free",
+      "usage": "Usage",
+      "remaining": "Remaining"
+    },
+    "account": {
+      "email": "Email",
+      "provider": "Provider",
+      "status": "Status",
+      "subscription": "Subscription",
+      "quota": "Quota",
+      "used": "Used",
+      "remaining": "Remaining",
+      "expiresAt": "Token Expires",
+      "expired": "Expired",
+      "tokenExpired": "Token Expired",
+      "noLabel": "No Label"
+    },
+    "status": {
+      "active": "Active",
+      "expired": "Expired",
+      "banned": "Banned",
+      "unknown": "Unknown"
+    },
+    "provider": {
+      "google": "Google",
+      "github": "GitHub",
+      "aws": "AWS Builder ID",
+      "enterprise": "Enterprise (IDC)"
+    },
+    "subscription": {
+      "free": "Free",
+      "pro": "Pro",
+      "proPlus": "Pro+"
+    },
+    "actions": {
+      "add": "Add Account",
+      "addAccount": "Add Account",
+      "import": "Import",
+      "export": "Export",
+      "refresh": "Refresh",
+      "refreshAll": "Refresh All",
+      "delete": "Delete",
+      "batchDelete": "Batch Delete",
+      "viewDetails": "View Details",
+      "editLabel": "Edit Label",
+      "copy": "Copy",
+      "copied": "Copied"
+    },
+    "search": {
+      "placeholder": "Search by email or label...",
+      "empty": "No matching accounts"
+    },
+    "empty": {
+      "title": "No Kiro Accounts",
+      "desc": "Add your first Kiro account using the OAuth login page"
+    },
+    "confirm": {
+      "delete": "Are you sure you want to delete this account?",
+      "batchDelete": "Are you sure you want to delete {{count}} accounts?",
+      "refreshAll": "Refresh all accounts?"
+    },
+    "notification": {
+      "deleted": "Account deleted successfully",
+      "batchDeleted": "{{count}} accounts deleted successfully",
+      "refreshed": "Account refreshed successfully",
+      "allRefreshed": "All accounts refreshed: {{success}} succeeded, {{failed}} failed",
+      "labelUpdated": "Label updated successfully",
+      "importSuccess": "Account imported successfully",
+      "exportSuccess": "Accounts exported successfully"
+    },
+    "oauth": {
+      "title": "Kiro OAuth Login",
+      "googleButton": "Login with Google",
+      "githubButton": "Login with GitHub",
+      "awsButton": "Login with AWS Builder ID",
+      "importButton": "Import Auth File",
+      "hint": "Login to Kiro (AWS CodeWhisperer) to automatically save credentials",
+      "waiting": "Waiting for authentication...",
+      "success": "Authentication successful!",
+      "error": "Authentication failed:",
+      "startError": "Failed to start Kiro OAuth:",
+      "authUrlLabel": "Login URL (Click to open in browser)"
+    },
+    "view": {
+      "card": "Card View",
+      "table": "Table View"
+    },
+    "table": {
+      "email": "Email",
+      "label": "Label",
+      "provider": "Provider",
+      "subscription": "Subscription",
+      "quota": "Quota",
+      "status": "Status",
+      "machineId": "Machine ID",
+      "expiresAt": "Expires At",
+      "actions": "Actions"
+    },
+    "import": {
+      "title": "Batch Import Accounts",
+      "uploadHint": "Upload JSON file or drag here",
+      "pasteHint": "Or paste JSON content",
+      "parseResult": "Parse Result",
+      "valid": "Valid",
+      "invalid": "Invalid",
+      "duplicate": "Duplicate",
+      "skipped": "Skipped",
+      "importing": "Importing...",
+      "success": "Import Successful",
+      "failed": "Import Failed",
+      "total": "Total",
+      "importBtn": "Start Import",
+      "clearBtn": "Clear",
+      "noData": "Please upload or paste JSON data",
+      "invalidJson": "Invalid JSON format",
+      "invalidRefreshToken": "Invalid refreshToken format",
+      "missingRefreshToken": "Missing refreshToken",
+      "result": {
+        "title": "Import Result",
+        "successCount": "Success: {{count}}",
+        "failedCount": "Failed: {{count}}",
+        "duplicateCount": "Duplicate: {{count}}",
+        "skippedCount": "Skipped: {{count}}"
+      }
+    }
   },
   "footer": {
     "api_version": "CLI Proxy API Version",

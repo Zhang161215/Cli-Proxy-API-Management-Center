@@ -51,6 +51,14 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     }
   },
+  server: {
+    proxy: {
+      '/v0': {
+        target: 'http://localhost:8317',
+        changeOrigin: true
+      }
+    }
+  },
   css: {
     modules: {
       localsConvention: 'camelCase',

@@ -33,7 +33,6 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
   fetchModels: async (apiBase, apiKey, forceRefresh = false) => {
     const { cache, isCacheValid } = get();
 
-    // 检查缓存
     if (!forceRefresh && isCacheValid(apiBase) && cache) {
       set({ models: cache.data, error: null });
       return cache.data;
@@ -42,7 +41,12 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
-      const list = await modelsApi.fetchModels(apiBase, apiKey);
+      let list: ModelInfo[];
+      if (apiKey) {
+        list = await modelsApi.fetchModels(apiBase, apiKey);
+      } else {
+        list = await modelsApi.fetchModelsViaManagement();
+      }
       const now = Date.now();
 
       set({
